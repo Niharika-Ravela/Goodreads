@@ -1,0 +1,211 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Goodreads Surprise Wheel</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: Inter, Arial, sans-serif; background:#f4f6f8; margin:0; padding:28px 14px; color:#111; }
+    h1 { font-size:26px; text-align:center; margin:0 0 8px 0; }
+    #container { max-width:1000px; margin:0 auto; }
+    /* layout: left wheel, right center cover */
+    #layout { display:flex; gap:36px; align-items:flex-start; justify-content:center; margin-top:16px; flex-wrap:wrap; }
+    #leftSide { display:flex; flex-direction:column; align-items:center; }
+    #rightSide { width:320px; text-align:center; display:flex; flex-direction:column; align-items:center; }
+    #wheelCanvas { width:580px; height:580px; border-radius:50%; border:12px solid #333; background:transparent; display:block; }
+    #arrow { width:0; height:0; border-left:20px solid transparent; border-right:20px solid transparent; border-bottom:32px solid #d62828; margin:12px auto; }
+    .controls { margin-top:12px; display:flex; gap:12px; align-items:center; }
+    button { background:#0b79ff; color:white; padding:10px 18px; border-radius:10px; border:none; font-size:15px; cursor:pointer; box-shadow:0 4px 10px rgba(11,121,255,0.18); }
+    #count { margin-left:6px; color:#555; font-size:14px; }
+    /* selected area right */
+    #selectedTitle { font-size:18px; font-weight:700; text-align:center; margin-top:6px; }
+    #selectedAuthor { font-size:14px; color:#444; margin-top:6px; }
+    #selectedCover { width:240px; height:auto; border-radius:8px; box-shadow:0 8px 22px rgba(0,0,0,0.12); margin-top:12px; object-fit:cover; }
+    .note { color:#666; font-size:13px; margin-top:10px; text-align:center; max-width:320px; }
+    /* small responsive tweak */
+    @media (max-width:940px){
+      #layout { flex-direction:column; align-items:center; }
+      #rightSide { width:80%; }
+      #wheelCanvas { width:420px; height:420px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <h1><i>One Spin. One Read <br> Book for the Week</i></h1>
+
+    <div id="layout">
+      <div id="leftSide">
+        <div id="arrow"></div>
+        <canvas id="wheelCanvas" width="580" height="580"></canvas>
+
+        <div class="controls">
+          <button id="spinBtn">SPIN</button>
+          <span id="count">Loading shelf...</span>
+        </div>
+      </div>
+
+      <div id="rightSide">
+        <div id="selectedTitle"></div>
+        <div id="selectedAuthor"></div>
+        <img id="selectedCover" src="" alt="Selected book cover" />
+        <div class="note">Selected book's cover and metadata are fetched from Google Books (server-side). If a cover isn't found we show a placeholder.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* Frontend:
+ - fetch /api/books (Goodreads RSS) for wheel items
+ - draw wheel with numbers 1..N (small, not bold)
+ - spin -> pick index -> animate wheel -> call /api/cover?title=&author= to fetch cover (server-side)
+ - display title, author, cover centered on right
+*/
+
+const API_BOOKS = "/api/books";
+const API_COVER = "/api/cover";
+
+let books = [];
+const canvas = document.getElementById("wheelCanvas");
+const ctx = canvas.getContext("2d");
+const spinBtn = document.getElementById("spinBtn");
+const countSpan = document.getElementById("count");
+const selectedTitleEl = document.getElementById("selectedTitle");
+const selectedAuthorEl = document.getElementById("selectedAuthor");
+const selectedCoverEl = document.getElementById("selectedCover");
+
+let isSpinning = false;
+let currentRotation = 0;
+
+function drawWheel(n) {
+  const cx = canvas.width/2;
+  const cy = canvas.height/2;
+  const radius = Math.min(cx, cy) - 6;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  const slice = 2 * Math.PI / n;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "14px Arial";      // smaller & not bold
+
+  for (let i=0; i<n; i++){
+    const start = i * slice;
+    const end = start + slice;
+    const hue = (i * (360 / n)) % 360;
+
+    // draw slice
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, radius, start, end);
+    ctx.closePath();
+    ctx.fillStyle = `hsl(${hue}, 70%, 75%)`;
+    ctx.fill();
+
+    // border line
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // number (i+1)
+    const midAngle = start + slice/2;
+    const textRadius = radius * 0.72;
+    const tx = cx + Math.cos(midAngle) * textRadius;
+    const ty = cy + Math.sin(midAngle) * textRadius;
+    ctx.fillStyle = "#222";
+    ctx.fillText(String(i+1), tx, ty);
+  }
+
+  // center dot
+  ctx.beginPath();
+  ctx.arc(cx, cy, 10, 0, 2*Math.PI);
+  ctx.fillStyle = "#fff";
+  ctx.fill();
+}
+
+async function loadBooks() {
+  try {
+    const res = await fetch(API_BOOKS);
+    const data = await res.json();
+    if (data.error) {
+      countSpan.textContent = "Error loading shelf";
+      console.error(data.error);
+      books = [];
+    } else {
+      books = data.books || [];
+      countSpan.textContent = `${books.length} titles on shelf`;
+    }
+    drawWheel(Math.max(1, books.length));
+  } catch (err) {
+    console.error(err);
+    countSpan.textContent = "Failed to fetch shelf. Is backend running?";
+    drawWheel(1);
+  }
+}
+
+function computeRotationForIndex(index, n) {
+  const sliceDeg = 360 / n;
+  const targetCenter = (index * sliceDeg) + sliceDeg/2;
+  const spins = 6;
+  return spins * 360 + targetCenter;
+}
+
+spinBtn.addEventListener("click", async () => {
+  if (isSpinning || books.length === 0) return;
+  isSpinning = true;
+
+  selectedTitleEl.textContent = "";
+  selectedAuthorEl.textContent = "";
+  selectedCoverEl.src = "";
+
+  const n = books.length;
+  const randomIndex = Math.floor(Math.random() * n);
+  const finalDeg = computeRotationForIndex(randomIndex, n);
+  const duration = 5200;
+  const start = performance.now();
+  const startRotation = currentRotation % 360;
+  const targetRotation = currentRotation + finalDeg;
+
+  function animate(now) {
+    const t = Math.min(1, (now - start) / duration);
+    const ease = 1 - Math.pow(1 - t, 3);
+    const val = startRotation + (targetRotation - startRotation) * ease;
+    canvas.style.transform = `rotate(${-val}deg)`;
+    if (t < 1) {
+      requestAnimationFrame(animate);
+    } else {
+      currentRotation = targetRotation;
+      // tiny delay then fetch cover
+      setTimeout(async () => {
+        const chosen = books[randomIndex];
+        await fetchCoverAndShow(chosen.title, chosen.author);
+        isSpinning = false;
+      }, 250);
+    }
+  }
+  requestAnimationFrame(animate);
+});
+
+async function fetchCoverAndShow(title, author) {
+  try {
+    selectedTitleEl.textContent = "Loading...";
+    selectedAuthorEl.textContent = "";
+    selectedCoverEl.src = "";
+    const url = `${API_COVER}?title=${encodeURIComponent(title)}&author=${encodeURIComponent(author || "")}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    selectedTitleEl.textContent = data.title || title;
+    selectedAuthorEl.textContent = data.author || author || "";
+    // show cover; server returns placeholder path if none found (see app.py)
+    selectedCoverEl.src = data.cover || "";
+    selectedCoverEl.alt = data.title || title;
+  } catch (err) {
+    console.error(err);
+    selectedTitleEl.textContent = title;
+  }
+}
+
+// initial
+loadBooks();
+</script>
+</body>
+</html>
