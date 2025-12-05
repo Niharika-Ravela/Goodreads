@@ -38,6 +38,10 @@ It uses Python for data extraction and a lightweight frontend for visualization.
 Check `requirements.txt` for the full dependency list.
 
 ---
+## 🎥 Demo
+
+You can watch a short demo of the Goodreads Surprise Book Picker here:
+[▶ Watch the demo](assets/demo.mp4)
 
 ## 📁 Project Structure
 
