@@ -41,7 +41,7 @@ Check `requirements.txt` for the full dependency list.
 ## 🎥 Demo
 
 You can watch a short demo of the Goodreads Surprise Book Picker here:
-[▶ Watch the demo](assets/demo.mp4)
+[▶ Watch the demo](assets/result.mp4)
 
 ## 📁 Project Structure
 
